@@ -318,10 +318,24 @@
       const ecart=Math.round((espVal-theorique)*100)/100;
       const avg=stats.nb>0?stats.totalCA/stats.nb:0;
 
-      const addToCart=p=>setCart(prev=>{const ex=prev.find(x=>x.id===p.id);return ex?prev.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...prev,{id:p.id,qty:1}];});
+      const stockDispo=p=>{
+        if(p.stock==null)return Infinity; // illimité
+        const inCart=cart.find(x=>x.id===p.id);
+        return p.stock-(inCart?inCart.qty:0);
+      };
+      const addToCart=p=>{
+        if(stockDispo(p)<=0)return; // bloqué si stock épuisé
+        setCart(prev=>{const ex=prev.find(x=>x.id===p.id);return ex?prev.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...prev,{id:p.id,qty:1}];});
+      };
       const removeFromCart=id=>setCart(prev=>{const ex=prev.find(x=>x.id===id);if(!ex)return prev;return ex.qty===1?prev.filter(x=>x.id!==id):prev.map(x=>x.id===id?{...x,qty:x.qty-1}:x);});
       const confirmPay=()=>{
         if(!payMode)return;
+        // Décrémente le stock de chaque produit vendu
+        setProducts(prev=>prev.map(p=>{
+          const item=cart.find(x=>x.id===p.id);
+          if(!item||p.stock==null)return p;
+          return{...p,stock:Math.max(0,p.stock-item.qty)};
+        }));
         setTransactions(prev=>[...prev,{id:Date.now(),ts:new Date().toISOString(),sessionId,items:cart.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty};}),total:cartTotal,mode:payMode}]);
         setCart([]);setPayModal(false);setPayMode(null);setCashStr('');
       };
@@ -661,15 +675,21 @@
                         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(100px,1fr))',gap:'0.6rem'}}>
                           {filtered.map(p=>{
                             const inCart=cart.find(x=>x.id===p.id);
+                            const dispo=stockDispo(p);
+                            const epuise=dispo<=0;
+                            const faible=p.stock!=null&&p.stock>0&&p.stock<=5;
+                            const stockColor=epuise?C.red:faible?'#e07b00':C.green;
                             return(
-                              <button key={p.id} onClick={()=>addToCart(p)} style={{...card(),border:`2px solid ${inCart?C.amber:'transparent'}`,padding:'0.8rem 0.4rem',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.3rem',cursor:'pointer',position:'relative',fontFamily:"'Outfit',sans-serif",background:inCart?C.amber+'0a':C.surface,transition:'all 0.1s',boxShadow:inCart?`0 0 0 3px ${C.amber}25,0 2px 8px rgba(0,0,0,0.08)`:'0 1px 3px rgba(0,0,0,0.07)'}}>
-                                {inCart&&<span style={{position:'absolute',top:'5px',right:'6px',background:C.amber,color:'#fff',borderRadius:'8px',fontSize:'0.58rem',padding:'1px 5px',fontWeight:'700',lineHeight:'1.7'}}>{inCart.qty}</span>}
+                              <button key={p.id} onClick={()=>addToCart(p)} disabled={epuise}
+                                style={{...card(),border:`2px solid ${epuise?C.red+'40':inCart?C.amber:'transparent'}`,padding:'0.8rem 0.4rem',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.3rem',cursor:epuise?'not-allowed':'pointer',position:'relative',fontFamily:"'Outfit',sans-serif",background:epuise?'rgba(0,0,0,0.03)':inCart?C.amber+'0a':C.surface,transition:'all 0.1s',opacity:epuise?0.55:1,boxShadow:inCart?`0 0 0 3px ${C.amber}25,0 2px 8px rgba(0,0,0,0.08)`:'0 1px 3px rgba(0,0,0,0.07)'}}>
+                                {inCart&&!epuise&&<span style={{position:'absolute',top:'5px',right:'6px',background:C.amber,color:'#fff',borderRadius:'8px',fontSize:'0.58rem',padding:'1px 5px',fontWeight:'700',lineHeight:'1.7'}}>{inCart.qty}</span>}
+                                {p.stock!=null&&<span style={{position:'absolute',top:'5px',left:'5px',background:stockColor,color:'#fff',borderRadius:'6px',fontSize:'0.55rem',padding:'1px 5px',fontWeight:'700',lineHeight:'1.7'}}>{epuise?'ÉPUISÉ':p.stock}</span>}
                                 {p.photo
-                                  ?<img src={p.photo} alt={p.name} style={{width:'48px',height:'48px',objectFit:'cover',borderRadius:'8px',flexShrink:0}}/>
-                                  :<span style={{fontSize:'1.6rem'}}>{p.emoji}</span>
+                                  ?<img src={p.photo} alt={p.name} style={{width:'48px',height:'48px',objectFit:'cover',borderRadius:'8px',flexShrink:0,marginTop:p.stock!=null?'0.6rem':'0'}}/>
+                                  :<span style={{fontSize:'1.6rem',marginTop:p.stock!=null?'0.4rem':'0'}}>{p.emoji}</span>
                                 }
-                                <span style={{fontSize:'0.7rem',fontWeight:'600',textAlign:'center',color:C.text,lineHeight:1.2}}>{p.name}</span>
-                                <span style={{fontSize:'0.75rem',fontWeight:'700',color:C.amber,fontFamily:"'DM Mono',monospace"}}>{fmt(p.price)}</span>
+                                <span style={{fontSize:'0.7rem',fontWeight:'600',textAlign:'center',color:epuise?C.textMuted:C.text,lineHeight:1.2}}>{p.name}</span>
+                                <span style={{fontSize:'0.75rem',fontWeight:'700',color:epuise?C.textMuted:C.amber,fontFamily:"'DM Mono',monospace"}}>{fmt(p.price)}</span>
                               </button>
                             );
                           })}
@@ -1229,19 +1249,22 @@
     /* ── CATALOGUE VIEW ──────────────────────────────────────────────── */
     function CatalogueView({products,setProducts,categories}) {
       const [editProd,setEditProd]=useState(null);
-      const [form,setForm]=useState({name:'',price:'',cat:'Bière Maison',emoji:'🍺',photo:''});
+      const [form,setForm]=useState({name:'',price:'',cat:'Bière Maison',emoji:'🍺',photo:'',stock:''});
       const [dragIdx,setDragIdx]=useState(null);
       const [overIdx,setOverIdx]=useState(null);
       const photoInputRef=React.useRef(null);
-      const openNew=()=>{setForm({name:'',price:'',cat:categories[0]||'Bière Maison',emoji:'🍺',photo:''});setEditProd('new');};
-      const openEdit=p=>{setForm({name:p.name,price:String(p.price),cat:p.cat,emoji:p.emoji,photo:p.photo||''});setEditProd(p);};
+      const openNew=()=>{setForm({name:'',price:'',cat:categories[0]||'Bière Maison',emoji:'🍺',photo:'',stock:''});setEditProd('new');};
+      const openEdit=p=>{setForm({name:p.name,price:String(p.price),cat:p.cat,emoji:p.emoji,photo:p.photo||'',stock:p.stock!=null?String(p.stock):''});setEditProd(p);};
       const save=()=>{
         if(!form.name||!form.price)return;
         const price=parseFloat(form.price.replace(',','.'));
-        if(editProd==='new')setProducts(prev=>[...prev,{id:'p'+Date.now(),name:form.name,price,cat:form.cat,emoji:form.emoji||'🍺',photo:form.photo}]);
-        else setProducts(prev=>prev.map(p=>p.id===editProd.id?{...p,name:form.name,price,cat:form.cat,emoji:form.emoji,photo:form.photo}:p));
+        const stock=form.stock===''?null:Math.max(0,parseInt(form.stock)||0);
+        if(editProd==='new')setProducts(prev=>[...prev,{id:'p'+Date.now(),name:form.name,price,cat:form.cat,emoji:form.emoji||'🍺',photo:form.photo,stock}]);
+        else setProducts(prev=>prev.map(p=>p.id===editProd.id?{...p,name:form.name,price,cat:form.cat,emoji:form.emoji,photo:form.photo,stock}:p));
         setEditProd(null);
       };
+      const reappro=(id,qty)=>{setProducts(prev=>prev.map(p=>p.id===id?{...p,stock:(p.stock||0)+qty}:p));};
+
       const capturePhoto=(file)=>{
         if(!file)return;
         const reader=new FileReader();
@@ -1289,6 +1312,23 @@
                 <span style={{fontSize:'0.7rem',fontWeight:'600',textAlign:'center',lineHeight:1.2,color:C.text}}>{p.name}</span>
                 <span style={{fontSize:'0.75rem',fontWeight:'700',color:C.amber,fontFamily:"'DM Mono',monospace"}}>{fmt(p.price)}</span>
                 <span style={{fontSize:'0.58rem',color:C.textMuted,background:C.bg,padding:'1px 6px',borderRadius:'4px'}}>{p.cat}</span>
+                {p.stock!=null&&(
+                  <span style={{fontSize:'0.6rem',fontWeight:'700',padding:'1px 7px',borderRadius:'6px',background:p.stock===0?C.red:p.stock<=5?'#e07b00':C.green,color:'#fff'}}>
+                    {p.stock===0?'ÉPUISÉ':`Stock: ${p.stock}`}
+                  </span>
+                )}
+                {p.stock!=null&&p.stock<=5&&p.stock>0&&(
+                  <button onClick={e=>{e.stopPropagation();const q=parseInt(window.prompt(`Réapprovisionner "${p.name}" — Quantité à ajouter ?`,'10'));if(q>0)reappro(p.id,q);}}
+                    style={{background:C.amber+'15',border:`1px solid ${C.amber}40`,borderRadius:'6px',padding:'2px 8px',cursor:'pointer',fontSize:'0.6rem',color:C.amber,fontWeight:'600',fontFamily:"'Outfit',sans-serif",marginTop:'1px'}}>
+                    + Stock
+                  </button>
+                )}
+                {p.stock!=null&&p.stock===0&&(
+                  <button onClick={e=>{e.stopPropagation();const q=parseInt(window.prompt(`Réapprovisionner "${p.name}" — Quantité à ajouter ?`,'10'));if(q>0)reappro(p.id,q);}}
+                    style={{background:C.red+'15',border:`1px solid ${C.red}40`,borderRadius:'6px',padding:'2px 8px',cursor:'pointer',fontSize:'0.6rem',color:C.red,fontWeight:'600',fontFamily:"'Outfit',sans-serif",marginTop:'1px'}}>
+                    Réappro
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1325,11 +1365,23 @@
                       style={{width:'100%',background:C.bg,border:'none',borderRadius:'8px',padding:'0.75rem',fontSize:'0.9rem',color:C.text,fontFamily:"'Outfit',sans-serif",outline:'none',...(f.style||{})}}/>
                   </div>
                 ))}
-                <div style={{marginBottom:'1.25rem'}}>
+                <div style={{marginBottom:'0.85rem'}}>
                   <label style={{display:'block',fontSize:'0.65rem',fontWeight:'700',color:C.textMuted,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'0.35rem'}}>Catégorie</label>
                   <input value={form.cat} onChange={e=>setForm(p=>({...p,cat:e.target.value}))} list="cats-dl"
                     style={{width:'100%',background:C.bg,border:'none',borderRadius:'8px',padding:'0.75rem',fontSize:'0.9rem',color:C.text,fontFamily:"'Outfit',sans-serif",outline:'none'}}/>
                   <datalist id="cats-dl">{allCats.map(c=><option key={c} value={c}/>)}</datalist>
+                </div>
+                <div style={{marginBottom:'1.25rem'}}>
+                  <label style={{display:'block',fontSize:'0.65rem',fontWeight:'700',color:C.textMuted,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'0.35rem'}}>
+                    Stock initial <span style={{fontWeight:'400',textTransform:'none',letterSpacing:0}}>(vide = illimité)</span>
+                  </label>
+                  <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+                    <input type="number" min="0" value={form.stock} placeholder="—"
+                      onChange={e=>setForm(p=>({...p,stock:e.target.value}))}
+                      style={{flex:1,background:C.bg,border:'none',borderRadius:'8px',padding:'0.75rem',fontSize:'0.9rem',color:C.text,fontFamily:"'DM Mono',monospace",outline:'none'}}/>
+                    {form.stock!==''&&<button type="button" onClick={()=>setForm(p=>({...p,stock:''}))}
+                      style={{background:'none',border:'none',color:C.textMuted,cursor:'pointer',fontSize:'0.8rem',padding:'0.5rem'}}>✕ Illimité</button>}
+                  </div>
                 </div>
                 <div style={{display:'flex',gap:'0.6rem'}}>
                   <button onClick={()=>setEditProd(null)} style={{flex:1,background:C.bg,border:'none',borderRadius:'10px',padding:'0.75rem',cursor:'pointer',color:C.textMuted,fontSize:'0.85rem',fontFamily:"'Outfit',sans-serif"}}>Annuler</button>
