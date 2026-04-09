@@ -341,24 +341,41 @@
         setCart(prev=>{const ex=prev.find(x=>x.id===p.id);return ex?prev.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...prev,{id:p.id,qty:1}];});
       };
       const removeFromCart=id=>setCart(prev=>{const ex=prev.find(x=>x.id===id);if(!ex)return prev;return ex.qty===1?prev.filter(x=>x.id!==id):prev.map(x=>x.id===id?{...x,qty:x.qty-1}:x);});
-      const TVA_RATE = 0.10; // 10% — taux réduit bar/restauration (boissons sur place)
+      // TVA par catégorie de produit
+      const TVA_CAT = cat => {
+        if(['Snack'].includes(cat)) return 0.055;
+        if(['Sans Alcool'].includes(cat)) return 0.10;
+        return 0.20; // Cave, Bière, Bière Ext., Vin — alcool
+      };
       const buildTicketText=(items,total,mode,ardoiseName,splitInfo)=>{
         const date=new Date().toLocaleDateString('fr-FR');
         const heure=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
         const lignes=items.map(i=>`  ${i.name} x${i.qty}  ${Number(i.price*i.qty).toFixed(2).replace('.',',')} €`).join('\n');
         const modeLbl=mode==='especes'?'Espèces':mode==='split'?'Paiement partagé':'Carte bancaire';
         const split=splitInfo?`\n${splitInfo}`:'';
-        const ht=Math.round(total/(1+TVA_RATE)*100)/100;
-        const tva=Math.round((total-ht)*100)/100;
+        // Calcul TVA ventilée par taux
+        const tvaMap={};
+        items.forEach(i=>{
+          const rate=TVA_CAT(i.cat||'');
+          const ttc=i.price*i.qty;
+          const ht=ttc/(1+rate);
+          const tva=ttc-ht;
+          if(!tvaMap[rate])tvaMap[rate]={ht:0,tva:0};
+          tvaMap[rate].ht+=ht;
+          tvaMap[rate].tva+=tva;
+        });
+        const totalHT=Object.values(tvaMap).reduce((s,v)=>s+v.ht,0);
+        const totalTVA=Object.values(tvaMap).reduce((s,v)=>s+v.tva,0);
+        const lignesTVA=Object.entries(tvaMap).sort((a,b)=>Number(a[0])-Number(b[0])).map(([r,v])=>`TVA ${(Number(r)*100).toFixed(1).replace('.0','')}%: HT ${v.ht.toFixed(2).replace('.',',')} € / TVA ${v.tva.toFixed(2).replace('.',',')} €`).join('\n');
         return `LES PAPAS BRASSEURS
 Caisse Événementielle
 ${ardoiseName&&ardoiseName!=='Caisse'?`Ardoise : ${ardoiseName}\n`:''}${date} — ${heure}
 ─────────────────────
 ${lignes}
 ─────────────────────
-HT    : ${ht.toFixed(2).replace('.',',')} €
-TVA 10%: ${tva.toFixed(2).replace('.',',')} €
-TOTAL TTC : ${Number(total).toFixed(2).replace('.',',')} €
+Total HT   : ${totalHT.toFixed(2).replace('.',',')} €
+${lignesTVA}
+TOTAL TTC  : ${Number(total).toFixed(2).replace('.',',')} €
 Règlement : ${modeLbl}${split}
 
 Merci & à bientôt ! 🍺`;
@@ -373,7 +390,7 @@ Merci & à bientôt ! 🍺`;
       const confirmPay=()=>{
         if(!payMode)return;
         const cartSnap=[...cart];
-        const items=cartSnap.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty};});
+        const items=cartSnap.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty,cat:p?.cat};});
         doDecrStock(cartSnap);
         setTransactions(prev=>[...prev,{id:Date.now(),ts:new Date().toISOString(),sessionId,ardoise:ard.name,items,total:cartTotal,mode:payMode}]);
         const ticket=buildTicketText(items,cartTotal,payMode,ard.name,null);
@@ -386,7 +403,7 @@ Merci & à bientôt ! 🍺`;
         const total=splitParts.reduce((s,p)=>s+parseFloat(p.montant||0),0);
         if(Math.abs(total-cartTotal)>0.01){alert(`Total des parts (${fmt(total)}) ≠ Total commande (${fmt(cartTotal)})`);return;}
         const cartSnap=[...cart];
-        const items=cartSnap.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty};});
+        const items=cartSnap.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty,cat:p?.cat};});
         doDecrStock(cartSnap);
         const splitInfo=splitParts.filter(p=>parseFloat(p.montant||0)>0).map(p=>`  ${p.mode==='especes'?'💵':'💳'} ${Number(parseFloat(p.montant)).toFixed(2).replace('.',',')} €`).join('\n');
         splitParts.forEach((part,idx)=>{
