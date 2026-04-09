@@ -251,7 +251,6 @@
       const [fondInput,    setFondInput]    = useState('231');
       const [fondVal,      setFondVal]      = useState(0);
       const [products,     setProducts]     = useState(DEFAULT_PRODUCTS);
-      const [cart,         setCart]         = useState([]);
       const [transactions, setTransactions] = useState([]);
       const [sessions,     setSessions]     = useState([]);
       const [activeCat,    setActiveCat]    = useState('all');
@@ -264,6 +263,13 @@
       const [syncing,      setSyncing]      = useState(true);
       const [cartOpen,     setCartOpen]     = useState(false);
       const [isMobile,    setIsMobile]    = useState(window.innerWidth < 768);
+      // ── ARDOISES ──
+      const [ardoises,    setArdoises]    = useState([{id:'default',name:'Caisse',cart:[]}]);
+      const [activeArd,   setActiveArd]   = useState('default');
+      const [ardModal,    setArdModal]    = useState(false);
+      const [ardName,     setArdName]     = useState('');
+      const [splitModal,  setSplitModal]  = useState(false);
+      const [splitParts,  setSplitParts]  = useState([{mode:'especes',montant:''}]);
       const loaded = React.useRef(false);
       useEffect(()=>{
         const onResize=()=>setIsMobile(window.innerWidth<768);
@@ -307,6 +313,10 @@
         return{totalCA,totalEsp,totalCB,nb:transactions.length,top,hourly};
       },[transactions]);
 
+      // Cart = cart de l'ardoise active
+      const ard = ardoises.find(a=>a.id===activeArd)||ardoises[0];
+      const cart = ard?.cart||[];
+      const setCart = updater => setArdoises(prev=>prev.map(a=>a.id===activeArd?{...a,cart:typeof updater==='function'?updater(a.cart):updater}:a));
       const cartTotal=useMemo(()=>cart.reduce((s,i)=>{const p=products.find(x=>x.id===i.id);return s+(p?p.price*i.qty:0);},0),[cart,products]);
       const cartQty=cart.reduce((s,i)=>s+i.qty,0);
       const filtered=activeCat==='all'?products:products.filter(p=>p.cat===activeCat);
@@ -328,16 +338,51 @@
         setCart(prev=>{const ex=prev.find(x=>x.id===p.id);return ex?prev.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...prev,{id:p.id,qty:1}];});
       };
       const removeFromCart=id=>setCart(prev=>{const ex=prev.find(x=>x.id===id);if(!ex)return prev;return ex.qty===1?prev.filter(x=>x.id!==id):prev.map(x=>x.id===id?{...x,qty:x.qty-1}:x);});
-      const confirmPay=()=>{
-        if(!payMode)return;
-        // Décrémente le stock de chaque produit vendu
+      const doDecrStock=(cartSnap)=>{
         setProducts(prev=>prev.map(p=>{
-          const item=cart.find(x=>x.id===p.id);
+          const item=cartSnap.find(x=>x.id===p.id);
           if(!item||p.stock==null)return p;
           return{...p,stock:Math.max(0,p.stock-item.qty)};
         }));
-        setTransactions(prev=>[...prev,{id:Date.now(),ts:new Date().toISOString(),sessionId,items:cart.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty};}),total:cartTotal,mode:payMode}]);
+      };
+      const confirmPay=()=>{
+        if(!payMode)return;
+        const cartSnap=[...cart];
+        const items=cartSnap.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty};});
+        doDecrStock(cartSnap);
+        setTransactions(prev=>[...prev,{id:Date.now(),ts:new Date().toISOString(),sessionId,ardoise:ard.name,items,total:cartTotal,mode:payMode}]);
         setCart([]);setPayModal(false);setPayMode(null);setCashStr('');
+        // Supprimer l'ardoise si ce n'est pas la caisse principale
+        if(activeArd!=='default') setArdoises(prev=>prev.filter(a=>a.id!==activeArd));
+        setActiveArd('default');
+      };
+      const confirmSplit=()=>{
+        const total=splitParts.reduce((s,p)=>s+parseFloat(p.montant||0),0);
+        if(Math.abs(total-cartTotal)>0.01){alert(`Total des parts (${fmt(total)}) ≠ Total commande (${fmt(cartTotal)})`);return;}
+        const cartSnap=[...cart];
+        const items=cartSnap.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty};});
+        doDecrStock(cartSnap);
+        splitParts.forEach((part,idx)=>{
+          const m=parseFloat(part.montant||0);
+          if(m>0) setTransactions(prev=>[...prev,{id:Date.now()+idx,ts:new Date().toISOString(),sessionId,ardoise:ard.name,items:idx===0?items:[],total:m,mode:part.mode,split:true}]);
+        });
+        setCart([]);setSplitModal(false);setPayModal(false);setPayMode(null);setCashStr('');
+        setSplitParts([{mode:'especes',montant:''}]);
+        if(activeArd!=='default') setArdoises(prev=>prev.filter(a=>a.id!==activeArd));
+        setActiveArd('default');
+      };
+      const addArdoise=()=>{
+        const name=ardName.trim()||`Table ${ardoises.length}`;
+        const id='ard_'+Date.now();
+        setArdoises(prev=>[...prev,{id,name,cart:[]}]);
+        setActiveArd(id);setArdModal(false);setArdName('');
+      };
+      const closeArdoise=(id)=>{
+        if(id==='default')return;
+        const a=ardoises.find(x=>x.id===id);
+        if(a?.cart?.length>0&&!window.confirm(`Fermer "${a.name}" ? Le panier sera perdu.`))return;
+        setArdoises(prev=>prev.filter(x=>x.id!==id));
+        if(activeArd===id)setActiveArd('default');
       };
 
       const openSession=()=>{
@@ -665,6 +710,28 @@
                 {view==='caisse'&&(
                   <div style={{flex:1,display:'flex',overflow:'hidden',minWidth:0}}>
                     <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0}}>
+
+                      {/* ── ONGLETS ARDOISES ── */}
+                      <div style={{display:'flex',gap:'0.3rem',padding:'0.5rem 1rem 0',background:C.surface,overflowX:'auto',flexShrink:0,borderBottom:`1px solid ${C.border}`}}>
+                        {ardoises.map(a=>{
+                          const total=a.cart.reduce((s,i)=>{const p=products.find(x=>x.id===i.id);return s+(p?p.price*i.qty:0);},0);
+                          const isActive=a.id===activeArd;
+                          return(
+                            <div key={a.id} style={{display:'flex',alignItems:'center',gap:'0.2rem',background:isActive?C.sidebar:'transparent',borderRadius:'8px 8px 0 0',padding:'0.35rem 0.6rem',cursor:'pointer',flexShrink:0,transition:'all 0.12s'}}
+                              onClick={()=>setActiveArd(a.id)}>
+                              <span style={{fontSize:'0.72rem',fontWeight:'600',color:isActive?'#fff':C.textMuted}}>{a.name}</span>
+                              {a.cart.length>0&&<span style={{fontSize:'0.6rem',background:isActive?C.amber:C.amber+'40',color:'#fff',borderRadius:'6px',padding:'0 5px',fontWeight:'700'}}>{fmt(total)}</span>}
+                              {a.id!=='default'&&<button onClick={e=>{e.stopPropagation();closeArdoise(a.id);}}
+                                style={{background:'none',border:'none',color:isActive?'rgba(255,255,255,0.5)':C.textMuted,cursor:'pointer',fontSize:'0.7rem',padding:'0 2px',lineHeight:1}}>✕</button>}
+                            </div>
+                          );
+                        })}
+                        <button onClick={()=>setArdModal(true)}
+                          style={{background:'none',border:`1px dashed ${C.border}`,borderRadius:'8px 8px 0 0',padding:'0.35rem 0.7rem',cursor:'pointer',color:C.textMuted,fontSize:'0.72rem',flexShrink:0,whiteSpace:'nowrap'}}>
+                          + Ardoise
+                        </button>
+                      </div>
+
                       <div style={{padding:'0.6rem 1rem',display:'flex',gap:'0.4rem',overflowX:'auto',flexShrink:0,background:C.surface,borderBottom:`1px solid ${C.border}`}}>
                         <button onClick={()=>setActiveCat('all')} style={{whiteSpace:'nowrap',padding:'0.3rem 0.7rem',borderRadius:'20px',border:'none',background:activeCat==='all'?C.sidebar:'transparent',color:activeCat==='all'?'#fff':C.textMuted,cursor:'pointer',fontSize:'0.72rem',fontWeight:'600',transition:'all 0.15s',flexShrink:0}}>Tout</button>
                         {categories.map(cat=>(
@@ -866,6 +933,10 @@
                           <span style={{fontSize:'0.78rem',fontWeight:'700',color:C.teal}}>Carte</span>
                         </button>
                       </div>
+                      <button onClick={()=>{setSplitModal(true);setSplitParts([{mode:'especes',montant:''},{mode:'especes',montant:''}]);}}
+                        style={{width:'100%',background:'none',border:`1px dashed ${C.teal+'60'}`,borderRadius:'10px',padding:'0.6rem',cursor:'pointer',color:C.teal,fontSize:'0.8rem',fontFamily:"'Outfit',sans-serif",marginBottom:'0.5rem'}}>
+                        🔀 Partager l'addition
+                      </button>
                       <button onClick={()=>{setPayModal(false);setPayMode(null);setCashStr('');}}
                         style={{width:'100%',background:'none',border:`1px solid ${C.border}`,borderRadius:'10px',padding:'0.7rem',cursor:'pointer',color:C.textMuted,fontSize:'0.8rem',fontFamily:"'Outfit',sans-serif"}}>Annuler</button>
                     </div>
@@ -936,6 +1007,73 @@
                       </div>
                     </div>
                   ):null}
+                </div>
+              </div>
+            )}
+            {/* ── MODAL NOUVELLE ARDOISE ── */}
+            {ardModal&&(
+              <div style={{position:'fixed',inset:0,background:'rgba(26,26,30,0.6)',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'1rem'}}>
+                <div style={{...card(),padding:'1.5rem',width:'100%',maxWidth:'320px'}}>
+                  <h2 style={{fontSize:'1rem',fontWeight:'800',marginBottom:'1rem'}}>🧾 Nouvelle ardoise</h2>
+                  <input autoFocus value={ardName} onChange={e=>setArdName(e.target.value)}
+                    onKeyDown={e=>e.key==='Enter'&&addArdoise()}
+                    placeholder="Table A, VIP, Bar..."
+                    style={{width:'100%',background:C.bg,border:'none',borderRadius:'8px',padding:'0.85rem',fontSize:'1rem',color:C.text,fontFamily:"'Outfit',sans-serif",outline:'none',marginBottom:'1rem'}}/>
+                  <div style={{display:'flex',gap:'0.5rem'}}>
+                    <button onClick={()=>{setArdModal(false);setArdName('');}}
+                      style={{flex:1,background:C.bg,border:'none',borderRadius:'10px',padding:'0.75rem',cursor:'pointer',color:C.textMuted,fontSize:'0.85rem',fontFamily:"'Outfit',sans-serif"}}>Annuler</button>
+                    <button onClick={addArdoise}
+                      style={{flex:2,background:C.sidebar,border:'none',borderRadius:'10px',padding:'0.75rem',cursor:'pointer',color:'#fff',fontSize:'0.85rem',fontWeight:'700',fontFamily:"'Outfit',sans-serif"}}>
+                      Créer l'ardoise
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── MODAL PARTAGE ADDITION ── */}
+            {splitModal&&(
+              <div style={{position:'fixed',inset:0,background:'rgba(26,26,30,0.6)',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'1rem'}}>
+                <div style={{...card(),padding:'1.5rem',width:'100%',maxWidth:'360px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+                    <h2 style={{fontSize:'1rem',fontWeight:'800'}}>🔀 Partager l'addition</h2>
+                    <div style={{fontSize:'0.75rem',fontFamily:"'DM Mono',monospace",fontWeight:'700',color:C.amber}}>{fmt(cartTotal)}</div>
+                  </div>
+                  {splitParts.map((part,idx)=>(
+                    <div key={idx} style={{display:'flex',gap:'0.5rem',marginBottom:'0.6rem',alignItems:'center'}}>
+                      <span style={{fontSize:'0.72rem',color:C.textMuted,width:'20px',textAlign:'center',flexShrink:0}}>#{idx+1}</span>
+                      <select value={part.mode} onChange={e=>setSplitParts(prev=>prev.map((p,i)=>i===idx?{...p,mode:e.target.value}:p))}
+                        style={{background:C.bg,border:'none',borderRadius:'8px',padding:'0.6rem',fontSize:'0.82rem',color:C.text,fontFamily:"'Outfit',sans-serif",cursor:'pointer'}}>
+                        <option value="especes">💵 Espèces</option>
+                        <option value="cb">💳 CB</option>
+                      </select>
+                      <input type="number" min="0" step="0.5" placeholder="0.00" value={part.montant}
+                        onChange={e=>setSplitParts(prev=>prev.map((p,i)=>i===idx?{...p,montant:e.target.value}:p))}
+                        style={{flex:1,background:C.bg,border:'none',borderRadius:'8px',padding:'0.6rem',fontSize:'0.9rem',color:C.text,fontFamily:"'DM Mono',monospace",outline:'none'}}/>
+                      <span style={{fontSize:'0.75rem',color:C.textMuted,flexShrink:0}}>€</span>
+                      {splitParts.length>2&&<button onClick={()=>setSplitParts(prev=>prev.filter((_,i)=>i!==idx))}
+                        style={{background:'none',border:'none',color:C.red,cursor:'pointer',fontSize:'1rem',padding:'0 4px',flexShrink:0}}>✕</button>}
+                    </div>
+                  ))}
+                  {(()=>{
+                    const tot=splitParts.reduce((s,p)=>s+parseFloat(p.montant||0),0);
+                    const reste=Math.round((cartTotal-tot)*100)/100;
+                    return reste!==0&&<div style={{fontSize:'0.72rem',color:reste>0?C.red:C.green,marginBottom:'0.5rem',textAlign:'right',fontFamily:"'DM Mono',monospace"}}>
+                      {reste>0?`Reste à répartir : ${fmt(reste)}`:`Excédent : ${fmt(-reste)}`}
+                    </div>;
+                  })()}
+                  <button onClick={()=>setSplitParts(prev=>[...prev,{mode:'especes',montant:''}])}
+                    style={{width:'100%',background:'none',border:`1px dashed ${C.border}`,borderRadius:'8px',padding:'0.5rem',cursor:'pointer',color:C.textMuted,fontSize:'0.78rem',fontFamily:"'Outfit',sans-serif",marginBottom:'0.85rem'}}>
+                    + Ajouter une part
+                  </button>
+                  <div style={{display:'flex',gap:'0.5rem'}}>
+                    <button onClick={()=>{setSplitModal(false);setSplitParts([{mode:'especes',montant:''}]);}}
+                      style={{flex:1,background:C.bg,border:'none',borderRadius:'10px',padding:'0.75rem',cursor:'pointer',color:C.textMuted,fontSize:'0.85rem',fontFamily:"'Outfit',sans-serif"}}>Annuler</button>
+                    <button onClick={confirmSplit}
+                      style={{flex:2,background:C.teal,border:'none',borderRadius:'10px',padding:'0.75rem',cursor:'pointer',color:'#fff',fontSize:'0.85rem',fontWeight:'700',fontFamily:"'Outfit',sans-serif",boxShadow:`0 4px 14px ${C.teal}55`}}>
+                      ✓ Encaisser
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
