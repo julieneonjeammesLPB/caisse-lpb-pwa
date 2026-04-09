@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head><title>Génération icônes LPB</title></head>
+<body>
+<p>Clique sur chaque bouton pour télécharger l'icône :</p>
+<button onclick="gen(192)">Télécharger icon-192.png</button>
+<button onclick="gen(512)">Télécharger icon-512.png</button>
+<canvas id="c" style="display:none"></canvas>
+<script>
+function gen(size) {
+  const canvas = document.getElementById('c');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  // Fond anthracite
+  ctx.fillStyle = '#1a1a1e';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, size, size, size * 0.2);
+  ctx.fill();
+  // Cercle amber
+  ctx.fillStyle = '#c17d14';
+  ctx.beginPath();
+  ctx.arc(size/2, size/2, size*0.38, 0, Math.PI*2);
+  ctx.fill();
+  // Emoji bière
+  ctx.font = `${size*0.4}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🍺', size/2, size/2 + size*0.03);
+  // Téléchargement
+  const a = document.createElement('a');
+  a.download = `icon-${size}.png`;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+</script>
+</body>
+</html>
