@@ -342,7 +342,7 @@
         setPhase('ouverture');
       };
 
-      const exportXLSX=()=>{
+      const exportXLSX=async()=>{
         if(!window.XLSX){alert('SheetJS non chargé.');return;}
         const XL=window.XLSX;const wb=XL.utils.book_new();
         const dateFR=new Date().toLocaleDateString('fr-FR');
@@ -374,7 +374,26 @@
           const ws5=XL.utils.aoa_to_sheet([['Produit','Quantité vendue'],...stats.top]);
           ws5['!cols']=[{wch:24},{wch:18}];XL.utils.book_append_sheet(wb,ws5,'Top produits');
         }
-        XL.writeFile(wb,`LPB_${sessionName.replace(/[\s/\\:*?"<>|]+/g,'_')}_${dateFR.replace(/\//g,'-')}.xlsx`);
+        const filename=`LPB_${sessionName.replace(/[\s/\\:*?"<>|]+/g,'_')}_${dateFR.replace(/\//g,'-')}.xlsx`;
+        // File System Access API : l'utilisateur choisit le dossier, Chrome le mémorise
+        if(window.showSaveFilePicker){
+          try{
+            const handle=await window.showSaveFilePicker({
+              suggestedName:filename,
+              types:[{description:'Fichier Excel',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]
+            });
+            const buf=XL.write(wb,{bookType:'xlsx',type:'array'});
+            const writable=await handle.createWritable();
+            await writable.write(new Blob([buf],{type:'application/octet-stream'}));
+            await writable.close();
+          }catch(e){
+            // Annulation par l'utilisateur ou navigateur sans support → fallback
+            if(e.name!=='AbortError') XL.writeFile(wb,filename);
+          }
+        }else{
+          // Fallback Safari / Firefox → téléchargement classique
+          XL.writeFile(wb,filename);
+        }
       };
 
       /* ── CHARGEMENT ─────────────────────────────────────────────── */
