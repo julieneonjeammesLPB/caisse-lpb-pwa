@@ -341,19 +341,24 @@
         setCart(prev=>{const ex=prev.find(x=>x.id===p.id);return ex?prev.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...prev,{id:p.id,qty:1}];});
       };
       const removeFromCart=id=>setCart(prev=>{const ex=prev.find(x=>x.id===id);if(!ex)return prev;return ex.qty===1?prev.filter(x=>x.id!==id):prev.map(x=>x.id===id?{...x,qty:x.qty-1}:x);});
+      const TVA_RATE = 0.10; // 10% — taux réduit bar/restauration (boissons sur place)
       const buildTicketText=(items,total,mode,ardoiseName,splitInfo)=>{
         const date=new Date().toLocaleDateString('fr-FR');
         const heure=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
         const lignes=items.map(i=>`  ${i.name} x${i.qty}  ${Number(i.price*i.qty).toFixed(2).replace('.',',')} €`).join('\n');
-        const modeLbl=mode==='especes'?'Espèces':'Carte bancaire';
+        const modeLbl=mode==='especes'?'Espèces':mode==='split'?'Paiement partagé':'Carte bancaire';
         const split=splitInfo?`\n${splitInfo}`:'';
+        const ht=Math.round(total/(1+TVA_RATE)*100)/100;
+        const tva=Math.round((total-ht)*100)/100;
         return `LES PAPAS BRASSEURS
 Caisse Événementielle
 ${ardoiseName&&ardoiseName!=='Caisse'?`Ardoise : ${ardoiseName}\n`:''}${date} — ${heure}
 ─────────────────────
 ${lignes}
 ─────────────────────
-TOTAL : ${Number(total).toFixed(2).replace('.',',')} €
+HT    : ${ht.toFixed(2).replace('.',',')} €
+TVA 10%: ${tva.toFixed(2).replace('.',',')} €
+TOTAL TTC : ${Number(total).toFixed(2).replace('.',',')} €
 Règlement : ${modeLbl}${split}
 
 Merci & à bientôt ! 🍺`;
