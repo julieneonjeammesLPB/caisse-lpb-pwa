@@ -393,8 +393,6 @@ Merci & à bientôt ! 🍺`;
         const items=cartSnap.map(i=>{const p=products.find(x=>x.id===i.id);return{name:p?.name,price:p?.price,qty:i.qty,cat:p?.cat};});
         doDecrStock(cartSnap);
         setTransactions(prev=>[...prev,{id:Date.now(),ts:new Date().toISOString(),sessionId,ardoise:ard.name,items,total:cartTotal,mode:payMode}]);
-        const ticket=buildTicketText(items,cartTotal,payMode,ard.name,null);
-        setLastTicket(ticket);setTicketModal(true);
         setCart([]);setPayModal(false);setPayMode(null);setCashStr('');
         if(activeArd!=='default') setArdoises(prev=>prev.filter(a=>a.id!==activeArd));
         setActiveArd('default');
@@ -410,8 +408,6 @@ Merci & à bientôt ! 🍺`;
           const m=parseFloat(part.montant||0);
           if(m>0) setTransactions(prev=>[...prev,{id:Date.now()+idx,ts:new Date().toISOString(),sessionId,ardoise:ard.name,items:idx===0?items:[],total:m,mode:part.mode,split:true}]);
         });
-        const ticket=buildTicketText(items,cartTotal,'split',ard.name,`Répartition :\n${splitInfo}`);
-        setLastTicket(ticket);setTicketModal(true);
         setCart([]);setSplitModal(false);setPayModal(false);setPayMode(null);setCashStr('');
         setSplitParts([{mode:'especes',montant:''}]);
         if(activeArd!=='default') setArdoises(prev=>prev.filter(a=>a.id!==activeArd));
@@ -1194,7 +1190,7 @@ Merci & à bientôt ! 🍺`;
             ))}
           </div>
           <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column',minHeight:0}}>
-            {tab==='session'   && <SessionStatsTab stats={stats} transactions={transactions}/>}
+            {tab==='session'   && <SessionStatsTab stats={stats} transactions={transactions} buildTicketText={buildTicketText} onSendTicket={(t)=>{setLastTicket(buildTicketText(t.items||[],t.total,t.mode,t.ardoise||'',null));setTicketModal(true);}}/>}
             {tab==='heures'    && <HeuresTab hourly={stats.hourly}/>}
             {tab==='historique'&& <HistoriqueTab sessions={sessions}/>}
           </div>
@@ -1211,7 +1207,7 @@ Merci & à bientôt ! 🍺`;
       );
     }
 
-    function SessionStatsTab({stats,transactions}) {
+    function SessionStatsTab({stats,transactions,onSendTicket}) {
       const avg=stats.nb>0?stats.totalCA/stats.nb:0;
       return(
         <div style={{flex:1,overflowY:'auto',padding:'1rem',width:'100%',minHeight:0}}>
@@ -1256,19 +1252,26 @@ Merci & à bientôt ! 🍺`;
                 Dernières transactions ({transactions.length})
               </div>
               {[...transactions].reverse().slice(0,20).map(t=>(
-                <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.45rem 0',borderBottom:`1px solid ${C.border}`}}>
+                <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.45rem 0',borderBottom:`1px solid ${C.border}`,gap:'0.4rem'}}>
                   <div style={{display:'flex',alignItems:'center',gap:'0.5rem',flex:1,minWidth:0}}>
                     <span style={{fontSize:'0.7rem',color:C.textMuted,fontFamily:"'DM Mono',monospace",flexShrink:0}}>
                       {new Date(t.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
                     </span>
                     <span style={{flexShrink:0}}>{t.mode==='especes'?'💵':'💳'}</span>
                     <span style={{fontSize:'0.65rem',color:C.textMuted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                      {t.items.map(i=>`${i.name}×${i.qty}`).join(', ')}
+                      {t.items&&t.items.length>0?t.items.map(i=>`${i.name}×${i.qty}`).join(', '):'—'}
                     </span>
                   </div>
-                  <span style={{fontWeight:'700',color:C.amber,fontFamily:"'DM Mono',monospace",fontSize:'0.85rem',flexShrink:0,marginLeft:'0.5rem'}}>
+                  <span style={{fontWeight:'700',color:C.amber,fontFamily:"'DM Mono',monospace",fontSize:'0.85rem',flexShrink:0}}>
                     {fmt(t.total)}
                   </span>
+                  {t.items&&t.items.length>0&&(
+                    <button onClick={()=>onSendTicket(t)}
+                      title="Envoyer le ticket"
+                      style={{background:'none',border:`1px solid ${C.border}`,borderRadius:'7px',padding:'3px 7px',cursor:'pointer',fontSize:'0.75rem',flexShrink:0,color:C.textMuted}}>
+                      📧
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
